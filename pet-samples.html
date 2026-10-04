@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#111">
+<title>Pet Samples</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;font-family:"Segoe UI",system-ui,sans-serif;user-select:none;-webkit-user-select:none}
+body{background:#111;color:#fff}
+#scene{position:fixed;inset:0;transition:background .6s}
+#top{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;padding:14px 16px;z-index:5}
+#top .nm{font-weight:800;font-size:20px;text-shadow:0 1px 6px rgba(0,0,0,.35)}
+#top .st{font-size:12px;opacity:.75;font-weight:600}
+.nav{display:flex;gap:8px}
+.nav button,.bar button{font:inherit;font-weight:700;border:0;border-radius:999px;background:rgba(255,255,255,.18);color:inherit;backdrop-filter:blur(8px);cursor:pointer}
+.nav button{width:42px;height:42px;font-size:18px}
+#stage{position:fixed;left:0;right:0;top:70px;bottom:120px;display:flex;align-items:center;justify-content:center;touch-action:none}
+#stage svg{width:min(92vw,62vh);height:min(92vw,62vh);overflow:visible}
+#mood{position:fixed;left:0;right:0;bottom:92px;text-align:center;font-size:13px;font-weight:700;opacity:.7;letter-spacing:.5px}
+.bar{position:fixed;left:0;right:0;bottom:18px;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;padding:0 10px;z-index:5}
+.bar button{padding:11px 15px;font-size:14px}
+.bar button.on{background:rgba(255,255,255,.85);color:#111}
+#dots{position:fixed;top:62px;left:0;right:0;display:flex;justify-content:center;gap:6px;z-index:5}
+#dots i{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.3)}#dots i.on{background:#fff}
+#fx{position:fixed;inset:0;pointer-events:none;z-index:4}
+.pt{position:absolute;font-size:26px;animation:up 1.6s ease-out forwards;will-change:transform,opacity}
+@keyframes up{0%{transform:translate(-50%,0) scale(.5);opacity:0}15%{opacity:1;transform:translate(-50%,-10px) scale(1)}100%{transform:translate(calc(-50% + var(--dx)),-120px) scale(1.1);opacity:0}}
+.scan::after{content:"";position:fixed;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(0,0,0,.18) 0 2px,transparent 2px 4px);mix-blend-mode:multiply}
+.hint{position:fixed;left:0;right:0;bottom:72px;text-align:center;font-size:11.5px;opacity:.55}
+</style>
+</head>
+<body>
+<div id="scene"></div>
+<div id="top"><div><div class="nm" id="nm"></div><div class="st" id="st"></div></div>
+<div class="nav"><button id="prev">‹</button><button id="next">›</button></div></div>
+<div id="dots"></div>
+<div id="stage"></div>
+<div id="mood"></div>
+<div class="hint">tap it · rub it · shake or tilt the phone · ‹ › to switch pets</div>
+<div class="bar">
+<button id="bDance">🎵 Dance (mic)</button>
+<button id="bSleep">🌙 Lights off</button>
+<button id="bSens">📳 Sensors</button>
+<button id="bFull">⛶</button>
+</div>
+<div id="fx"></div>
+<script>
+/* ============ shared helpers ============ */
+const TAU=Math.PI*2, rnd=(a,b)=>a+Math.random()*(b-a), clamp=(v,a,b)=>Math.max(a,Math.min(b,v)), lerp=(a,b,k)=>a+(b-a)*k;
+function smoothClosed(pts){ // catmull-rom -> cubic bezier, closed
+  let d=`M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;const n=pts.length;
+  for(let i=0;i<n;i++){const p0=pts[(i-1+n)%n],p1=pts[i],p2=pts[(i+1)%n],p3=pts[(i+2)%n];
+    d+=`C${(p1[0]+(p2[0]-p0[0])/6).toFixed(1)},${(p1[1]+(p2[1]-p0[1])/6).toFixed(1)} ${(p2[0]-(p3[0]-p1[0])/6).toFixed(1)},${(p2[1]-(p3[1]-p1[1])/6).toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`}
+  return d+'Z'}
+function eye(x,y,r,pr,cls=''){return `<g class="eye ${cls}" data-c="${x},${y}"><ellipse cx="${x}" cy="${y}" rx="${r}" ry="${r*1.08}" fill="#fff"/><g class="pup"><circle cx="${x}" cy="${y}" r="${pr}" fill="#1b1b22"/><circle cx="${x+pr*.35}" cy="${y-pr*.4}" r="${pr*.32}" fill="#fff"/></g></g>`}
+const SHADOW=`<ellipse id="shadow" cx="150" cy="254" rx="80" ry="10" fill="rgba(0,0,0,.22)"/>`;
+
+/* ============ the 10 pets ============ */
+const PETS=[
+{ name:'Goo', style:'gooey slime · squash & stretch', bg:'radial-gradient(circle at 50% 35%,#c9f7e4,#62c9a5 70%,#2f8f74)', mood:'wobbly',
+  svg:()=>`<defs><radialGradient id="g1" cx="40%" cy="30%"><stop offset="0" stop-color="#b8ffb0"/><stop offset=".6" stop-color="#4fd17a"/><stop offset="1" stop-color="#1f9a55"/></radialGradient></defs>${SHADOW}
+  <g id="body"><path id="blob" fill="url(#g1)"/><ellipse cx="112" cy="150" rx="22" ry="12" fill="#fff" opacity=".55" transform="rotate(-25 112 150)"/><circle cx="135" cy="138" r="5" fill="#fff" opacity=".6"/>
+  ${eye(125,190,15,7.5)}${eye(178,190,15,7.5)}<ellipse class="cheek" cx="105" cy="212" rx="10" ry="6" fill="#ff8fb1" opacity="0"/><ellipse class="cheek" cx="198" cy="212" rx="10" ry="6" fill="#ff8fb1" opacity="0"/><path class="mouth" fill="none" stroke="#14532d" stroke-width="4" stroke-linecap="round"/></g>`,
+  mouths:{idle:'M140 214 Q151 221 162 214',happy:'M136 210 Q151 230 166 210',o:'M146 214 a5 6 0 1 0 10 0 a5 6 0 1 0 -10 0',sleep:'M142 216 L160 216'},
+  update(P,t){ const pts=[];for(let i=0;i<10;i++){const a=i/10*TAU;const r=1+0.045*Math.sin(t*2.3+i*1.7)+0.03*Math.sin(t*3.7+i*2.9)+P.excite*0.06*Math.sin(t*9+i);
+    let x=150+Math.cos(a)*100*r,y=185+Math.sin(a)*72*r;if(y>250)y=250;pts.push([x,y])} $('#blob').setAttribute('d',smoothClosed(pts))} },
+
+{ name:'Bit', style:'8-bit pixel cat', bg:'linear-gradient(#2b2d5c,#4b3f8f 60%,#7a5cc7)', mood:'loading...', pixel:true,
+  svg:()=>{ const G=['..k..........k..','.kok........kok.','.koook....koook.','.kooookkkkooook.','kooooooooooooook','kooooooooooooook','kooooooooooooook','kooooooooooooook','koowwoopppowwook','kooooooooooooook','kooooooooooooook','.kooooooooooook.','..kkkkkkkkkkkk..'];
+    const C={k:'#1a1124',o:'#ff9a3c',w:'#fff2df',p:'#ff6f91'};let r='';G.forEach((row,y)=>[...row].forEach((ch,x)=>{if(C[ch])r+=`<rect x="${54+x*12}" y="${94+y*12}" width="12.4" height="12.4" fill="${C[ch]}"/>`}));
+    return `${SHADOW}<g id="tail" shape-rendering="crispEdges"><rect x="234" y="190" width="12" height="12" fill="#1a1124"/><rect x="246" y="178" width="12" height="24" fill="#ff9a3c"/><rect x="246" y="166" width="12" height="12" fill="#1a1124"/></g>
+    <g id="body" shape-rendering="crispEdges">${r}
+    <g class="eye" data-c="108,166"><rect x="96" y="154" width="24" height="24" fill="#fff"/><g class="pup"><rect x="102" y="160" width="12" height="12" fill="#1a1124"/></g></g>
+    <g class="eye" data-c="192,166"><rect x="180" y="154" width="24" height="24" fill="#fff"/><g class="pup"><rect x="186" y="160" width="12" height="12" fill="#1a1124"/></g></g>
+    <rect class="cheek" x="78" y="190" width="18" height="8" fill="#ff6f91" opacity="0"/><rect class="cheek" x="204" y="190" width="18" height="8" fill="#ff6f91" opacity="0"/>
+    <path class="mouth" fill="none" stroke="#1a1124" stroke-width="5"/></g>`},
+  mouths:{idle:'M138 206 h6 v6 h12 v-6 h6',happy:'M132 204 v8 h36 v-8',o:'M144 204 h12 v12 h-12 z',sleep:'M138 210 h24'},
+  update(P,t){ const s=Math.floor(t*4)%4;$('#tail').setAttribute('transform',`rotate(${[0,-12,0,12][s]+(P.excite?(s%2?20:-20):0)} 240 202)`)} },
+
+{ name:'Matcha', style:'tea cup creature · steam', bg:'linear-gradient(#f6efe2,#e5d6bb)', mood:'steeping', dark:true,
+  svg:()=>`<defs><linearGradient id="cup" x1="0" x2="1"><stop offset="0" stop-color="#fffdf7"/><stop offset=".7" stop-color="#efe6d4"/><stop offset="1" stop-color="#d9ccb1"/></linearGradient></defs>${SHADOW}
+  <g id="steam" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" opacity=".9"><path class="s"/><path class="s"/><path class="s"/></g>
+  <g id="body"><path d="M68 132 h164 l-14 92 q-6 26 -34 26 h-68 q-28 0 -34 -26 z" fill="url(#cup)" stroke="#bfae8d" stroke-width="3"/>
+  <path d="M232 150 q34 0 30 30 q-4 26 -36 22" fill="none" stroke="#bfae8d" stroke-width="10"/>
+  <ellipse cx="150" cy="134" rx="82" ry="16" fill="#7fb24a"/><ellipse cx="135" cy="131" rx="30" ry="5" fill="#a9d36d" opacity=".8"/>
+  <path id="leaf" d="M150 118 q-22 -30 4 -50 q16 26 -4 50z" fill="#5f9a2f"/>
+  ${eye(120,180,12,6.5)}${eye(180,180,12,6.5)}<ellipse class="cheek" cx="102" cy="200" rx="10" ry="6" fill="#ff9db5" opacity="0"/><ellipse class="cheek" cx="198" cy="200" rx="10" ry="6" fill="#ff9db5" opacity="0"/>
+  <path class="mouth" fill="none" stroke="#6b5a3e" stroke-width="4" stroke-linecap="round"/></g>`,
+  mouths:{idle:'M141 202 Q150 208 159 202',happy:'M137 198 Q150 216 163 198',o:'M145 202 a5 6 0 1 0 10 0 a5 6 0 1 0 -10 0',sleep:'M142 204 L158 204'},
+  update(P,t){ document.querySelectorAll('#steam .s').forEach((p,i)=>{const ph=(t*0.45+i/3)%1;const x=110+i*40,y0=118-ph*90;let d=`M${x} ${y0}`;for(let k=1;k<=4;k++)d+=` Q${x+(k%2?14:-14)*Math.sin(t*2+i)} ${y0-k*10+5} ${x} ${y0-k*10}`;p.setAttribute('d',d);p.setAttribute('opacity',(Math.sin(ph*Math.PI)*0.8*(P.sleep?.3:1)).toFixed(2))});
+    $('#leaf').setAttribute('transform',`rotate(${Math.sin(t*1.7)*8+P.excite*Math.sin(t*14)*12} 150 118)`)} },
+
+{ name:'Boo', style:'floaty ghost · translucent', bg:'radial-gradient(circle at 50% 40%,#3a3f6b,#14152b 75%)', mood:'haunting', float:true,
+  svg:()=>`<defs><radialGradient id="gh" cx="45%" cy="35%"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#cfd8ff"/></radialGradient><filter id="glow"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>${SHADOW}
+  <g id="body" filter="url(#glow)"><path id="ghost" fill="url(#gh)" opacity=".92"/>
+  ${eye(126,150,13,9)}${eye(176,150,13,9)}<ellipse class="cheek" cx="110" cy="172" rx="10" ry="6" fill="#ff9ec7" opacity="0"/><ellipse class="cheek" cx="192" cy="172" rx="10" ry="6" fill="#ff9ec7" opacity="0"/>
+  <path class="mouth" fill="#3b2a5c"/><g id="arms" fill="url(#gh)"><ellipse id="aL" cx="84" cy="180" rx="14" ry="9"/><ellipse id="aR" cx="216" cy="180" rx="14" ry="9"/></g></g>`,
+  mouths:{idle:'M143 172 q8 6 16 0 q-8 3 -16 0z',happy:'M138 168 q13 18 26 0z',o:'M145 170 a6 8 0 1 0 12 0 a6 8 0 1 0 -12 0z',sleep:'M142 174 h18 v2 h-18z'},
+  update(P,t){ let d='M80 160 C80 70 220 70 220 160 L220 228';const n=6;for(let i=0;i<n;i++){const x1=220-(i+0.5)*140/n,x2=220-(i+1)*140/n;const y=228+Math.sin(t*4+i*1.3)*7;d+=` Q${x1} ${y+16} ${x2} ${y}`}
+    $('#ghost').setAttribute('d',d+'Z');$('#aL').setAttribute('transform',`rotate(${Math.sin(t*3)*18-(P.excite?40:0)} 96 180)`);$('#aR').setAttribute('transform',`rotate(${-Math.sin(t*3+1)*18+(P.excite?40:0)} 204 180)`)} },
+
+{ name:'Mochi', style:'round chick · bouncy', bg:'linear-gradient(#ffe9a8,#ffc96b)', mood:'peep', dark:true,
+  svg:()=>`<defs><radialGradient id="ck" cx="40%" cy="35%"><stop offset="0" stop-color="#fff6c2"/><stop offset=".7" stop-color="#ffd84d"/><stop offset="1" stop-color="#f2b705"/></radialGradient></defs>${SHADOW}
+  <g id="body"><path d="M125 246 l-6 10 M125 246 l0 12 M125 246 l6 10 M175 246 l-6 10 M175 246 l0 12 M175 246 l6 10" stroke="#f08a24" stroke-width="5" stroke-linecap="round"/>
+  <ellipse id="wL" cx="72" cy="190" rx="18" ry="30" fill="#f7c531"/><ellipse id="wR" cx="228" cy="190" rx="18" ry="30" fill="#f7c531"/>
+  <circle cx="150" cy="180" r="80" fill="url(#ck)"/><path id="tuft" d="M150 102 q-10 -26 6 -30 q-4 14 8 10 q-6 16 -14 20z" fill="#f2b705"/>
+  ${eye(122,170,11,7)}${eye(178,170,11,7)}<ellipse class="cheek" cx="106" cy="196" rx="12" ry="7" fill="#ff8f8f" opacity=".0"/><ellipse class="cheek" cx="194" cy="196" rx="12" ry="7" fill="#ff8f8f" opacity=".0"/>
+  <path class="mouth" fill="#f08a24" stroke="#c96a12" stroke-width="2" stroke-linejoin="round"/></g>`,
+  mouths:{idle:'M140 186 L160 186 L150 200 Z',happy:'M138 182 L162 182 L150 204 Z M140 192 L160 192',o:'M140 182 L160 182 L150 192 Z M140 196 L160 196 L150 206 Z',sleep:'M142 188 L158 188 L150 196 Z'},
+  update(P,t){ const f=P.excite?Math.sin(t*30)*35:Math.sin(t*2)*4;$('#wL').setAttribute('transform',`rotate(${20+f} 82 170)`);$('#wR').setAttribute('transform',`rotate(${-20-f} 218 170)`);$('#tuft').setAttribute('transform',`rotate(${Math.sin(t*3)*10} 152 102)`)} },
+
+{ name:'Volt', style:'neon robot · CRT glow', bg:'radial-gradient(circle at 50% 45%,#10233a,#05080f 75%)', mood:'online', scan:true,
+  svg:()=>`<defs><filter id="neon" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>${SHADOW}
+  <g id="body" filter="url(#neon)" fill="none" stroke="#3ff2ff" stroke-width="4">
+  <line x1="150" y1="92" x2="150" y2="62"/><circle id="bulb" cx="150" cy="56" r="8" fill="#ff3fd0" stroke="#ff3fd0"/>
+  <rect x="72" y="92" width="156" height="120" rx="26"/><rect x="92" y="112" width="116" height="78" rx="12" stroke="#1fa9b5"/>
+  <rect x="104" y="212" width="92" height="38" rx="10"/><circle cx="130" cy="231" r="5" fill="#3ff2ff"/><circle id="led2" cx="150" cy="231" r="5" fill="#3ff2ff"/><circle cx="170" cy="231" r="5" fill="#3ff2ff"/>
+  <g class="eye" data-c="126,145"><g class="pup"><rect x="116" y="133" width="20" height="24" rx="5" fill="#3ff2ff" stroke="none"/></g></g>
+  <g class="eye" data-c="174,145"><g class="pup"><rect x="164" y="133" width="20" height="24" rx="5" fill="#3ff2ff" stroke="none"/></g></g>
+  <rect class="cheek" x="100" y="166" width="14" height="5" fill="#ff3fd0" stroke="none" opacity="0"/><rect class="cheek" x="186" y="166" width="14" height="5" fill="#ff3fd0" stroke="none" opacity="0"/>
+  <path class="mouth" stroke="#3ff2ff" stroke-width="4" stroke-linecap="round"/></g>`,
+  mouths:{idle:'M136 176 h28',happy:'M132 172 q18 14 36 0',o:'M144 170 h12 v10 h-12 z',sleep:'M140 176 h4 M148 176 h4 M156 176 h4'},
+  update(P,t){ $('#bulb').setAttribute('opacity',(0.5+0.5*Math.abs(Math.sin(t*(P.excite?12:2.5)))).toFixed(2));$('#led2').setAttribute('fill',Math.floor(t*3)%2?'#3ff2ff':'#ff3fd0');
+    if(P.mouthKey=='idle'&&!P.sleep){const w=10+Math.abs(Math.sin(t*6))*18*(P.dance?1:0.2);$('.mouth').setAttribute('d',`M${150-w} 176 h${2*w}`)}} },
+
+{ name:'Sprig', style:'sprout in a pot · sways', bg:'linear-gradient(#d9f2ff,#bfe6c8 70%,#9fd29a)', mood:'photosynthesizing', dark:true,
+  svg:()=>`${SHADOW}<g id="body"><g id="stem"><path d="M150 168 Q146 120 150 86" fill="none" stroke="#3f9a3a" stroke-width="7" stroke-linecap="round"/>
+  <path id="lfL" d="M150 100 q-46 -24 -60 6 q36 18 60 -6z" fill="#5cc25a"/><path id="lfR" d="M150 92 q44 -30 62 -2 q-34 22 -62 2z" fill="#7bd96a"/><circle id="bud" cx="150" cy="82" r="7" fill="#ff8fb1" opacity="0"/></g>
+  <path d="M86 168 h128 l-14 76 q-2 8 -10 8 h-80 q-8 0 -10 -8 z" fill="#d9774b"/><rect x="80" y="158" width="140" height="22" rx="6" fill="#c25f35"/>
+  ${eye(126,206,10,6)}${eye(174,206,10,6)}<ellipse class="cheek" cx="110" cy="224" rx="9" ry="5" fill="#ff9b8a" opacity="0"/><ellipse class="cheek" cx="190" cy="224" rx="9" ry="5" fill="#ff9b8a" opacity="0"/>
+  <path class="mouth" fill="none" stroke="#5a2a14" stroke-width="3.5" stroke-linecap="round"/></g>`,
+  mouths:{idle:'M143 226 Q150 231 157 226',happy:'M139 223 Q150 237 161 223',o:'M146 226 a4 5 0 1 0 8 0 a4 5 0 1 0 -8 0',sleep:'M143 228 L157 228'},
+  update(P,t){ const sw=Math.sin(t*1.4)*5+P.tiltS*18+(P.excite?Math.sin(t*20)*8:0);$('#stem').setAttribute('transform',`rotate(${sw} 150 168)`);
+    $('#lfL').setAttribute('transform',`rotate(${Math.sin(t*2.2)*8-(P.sleep?18:0)} 150 100)`);$('#lfR').setAttribute('transform',`rotate(${-Math.sin(t*2.2+1)*8+(P.sleep?18:0)} 150 92)`);$('#bud').setAttribute('opacity',P.happyT>0?1:0)} },
+
+{ name:'Jelly', style:'jellyfish · deep sea', bg:'linear-gradient(#0a4b78,#062a4a 60%,#03162a)', mood:'drifting', float:true,
+  svg:()=>`<defs><radialGradient id="jl" cx="50%" cy="30%"><stop offset="0" stop-color="#ffd6f2"/><stop offset=".7" stop-color="#ff8fd8" stop-opacity=".85"/><stop offset="1" stop-color="#c25fd8" stop-opacity=".7"/></radialGradient></defs>
+  <g id="bubbles" fill="none" stroke="#9fe0ff" stroke-width="2" opacity=".6"><circle r="5"/><circle r="3"/><circle r="7"/><circle r="4"/></g>${SHADOW}
+  <g id="body"><g id="tent" fill="none" stroke="#ffb0e6" stroke-width="5" stroke-linecap="round" opacity=".85"><path/><path/><path/><path/><path/></g>
+  <path id="bell" fill="url(#jl)"/>${eye(128,150,11,7)}${eye(172,150,11,7)}<ellipse class="cheek" cx="112" cy="168" rx="9" ry="5" fill="#ff5fae" opacity="0"/><ellipse class="cheek" cx="188" cy="168" rx="9" ry="5" fill="#ff5fae" opacity="0"/>
+  <path class="mouth" fill="none" stroke="#7a1f5c" stroke-width="3.5" stroke-linecap="round"/></g>`,
+  mouths:{idle:'M144 170 Q150 175 156 170',happy:'M140 167 Q150 180 160 167',o:'M146 170 a4 5 0 1 0 8 0 a4 5 0 1 0 -8 0',sleep:'M144 172 L156 172'},
+  update(P,t){ const pulse=Math.max(0,Math.sin(t*2.6));const w=88-pulse*10,h=84+pulse*8;$('#bell').setAttribute('d',`M${150-w} 186 C${150-w} ${186-h*1.25} ${150+w} ${186-h*1.25} ${150+w} 186 Q150 ${176+pulse*6} ${150-w} 186Z`);
+    document.querySelectorAll('#tent path').forEach((p,i)=>{const x=104+i*23;let d=`M${x} 186`;for(let k=1;k<=5;k++)d+=` L${(x+Math.sin(t*3+i+k*.8)*(6+k*2.4)).toFixed(1)} ${186+k*15+pulse*-6}`;p.setAttribute('d',d)});
+    document.querySelectorAll('#bubbles circle').forEach((c,i)=>{const ph=(t*0.18+i*.27)%1;c.setAttribute('cx',60+i*55+Math.sin(t*2+i)*8);c.setAttribute('cy',300-ph*320)})} },
+
+{ name:'Nugget', style:'hamster in a jar · tilt to slide', bg:'linear-gradient(#ffe0c7,#f7c8a3)', mood:'snacking', dark:true, jar:true,
+  svg:()=>`${SHADOW}<rect x="58" y="70" width="184" height="184" rx="36" fill="rgba(200,235,255,.35)" stroke="rgba(255,255,255,.95)" stroke-width="5"/><rect x="80" y="56" width="140" height="20" rx="8" fill="#b88b5a"/>
+  <path d="M66 236 q84 -14 168 0 v6 q0 12 -14 12 h-140 q-14 0 -14 -12z" fill="#f2d39b"/>
+  <g id="body"><ellipse cx="110" cy="148" rx="16" ry="18" fill="#c97b3d"/><ellipse cx="190" cy="148" rx="16" ry="18" fill="#c97b3d"/><ellipse cx="110" cy="150" rx="8" ry="10" fill="#ffb3a0"/><ellipse cx="190" cy="150" rx="8" ry="10" fill="#ffb3a0"/>
+  <ellipse cx="150" cy="200" rx="72" ry="56" fill="#e39a5a"/><ellipse cx="150" cy="215" rx="48" ry="36" fill="#fff1e0"/>
+  <ellipse id="pL" cx="112" cy="206" rx="16" ry="12" fill="#fff1e0"/><ellipse id="pR" cx="188" cy="206" rx="16" ry="12" fill="#fff1e0"/>
+  ${eye(126,182,8,6)}${eye(174,182,8,6)}<ellipse class="cheek" cx="108" cy="198" rx="9" ry="5" fill="#ff9b9b" opacity="0"/><ellipse class="cheek" cx="192" cy="198" rx="9" ry="5" fill="#ff9b9b" opacity="0"/>
+  <ellipse cx="150" cy="195" rx="5" ry="3.5" fill="#d1566b"/><path class="mouth" fill="none" stroke="#6b3a1f" stroke-width="3" stroke-linecap="round"/></g>`,
+  mouths:{idle:'M144 201 q6 5 6 0 q0 5 6 0',happy:'M142 200 q8 10 16 0',o:'M146 202 a4 5 0 1 0 8 0 a4 5 0 1 0 -8 0',sleep:'M144 203 L156 203'},
+  update(P,t){ const s=1+(P.happyT>0?0.35:0)+Math.sin(t*14)*0.03*(P.happyT>0);$('#pL').setAttribute('transform',`translate(112 206) scale(${s}) translate(-112 -206)`);$('#pR').setAttribute('transform',`translate(188 206) scale(${s}) translate(-188 -206)`)} },
+
+{ name:'Scribbs', style:'hand-drawn doodle · boiling lines', bg:'#fbf7ec', mood:'sketchy', dark:true, doodle:true,
+  svg:()=>`<defs><filter id="boil"><feTurbulence id="turb" type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="1"/><feDisplacementMap in="SourceGraphic" scale="5"/></filter></defs>
+  <g filter="url(#boil)"><ellipse id="shadow" cx="150" cy="254" rx="80" ry="8" fill="none" stroke="#222" stroke-width="2" stroke-dasharray="6 6"/>
+  <g id="body" stroke="#1d1d1d" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="#fff">
+  <path d="M96 120 L82 70 L118 104 M204 120 L218 70 L182 104"/><path d="M86 250 C60 250 66 120 150 112 C234 120 240 250 214 250 Z" fill="#ffe36e"/>
+  <path d="M120 250 v-14 M150 250 v-16 M180 250 v-14" fill="none"/>
+  <g class="eye" data-c="124,170"><circle cx="124" cy="170" r="20" fill="#fff"/><g class="pup"><circle cx="124" cy="170" r="8" fill="#1d1d1d"/></g></g>
+  <g class="eye" data-c="178,166"><circle cx="178" cy="166" r="14" fill="#fff"/><g class="pup"><circle cx="178" cy="166" r="6" fill="#1d1d1d"/></g></g>
+  <path class="cheek" d="M98 196 l10 -6 l4 8 l10 -6" fill="none" stroke="#ff6f91" opacity="0"/><path class="cheek" d="M184 196 l10 -6 l4 8 l10 -6" fill="none" stroke="#ff6f91" opacity="0"/>
+  <path class="mouth" fill="none"/></g></g>`,
+  mouths:{idle:'M132 206 l8 6 l8 -6 l8 6 l8 -6',happy:'M128 200 Q150 230 172 200 Z',o:'M142 204 a8 10 0 1 0 16 0 a8 10 0 1 0 -16 0',sleep:'M134 210 L166 210'},
+  update(P,t){ $('#turb').setAttribute('seed',Math.floor(t*9)%6+1)} },
+];
+
+/* ============ engine ============ */
+const $=s=>document.querySelector(s);
+let cur=0,parts={},last=performance.now(),T0=performance.now();
+const P={lookX:0,lookY:0,tx:0,ty:0,blink:0,nextBlink:1,squash:0,sv:0,y:0,vy:0,happyT:0,purrT:0,dizzyT:0,excite:0,sleep:false,dance:false,tilt:0,tiltS:0,nextLook:0,pointer:null,mouthKey:'',beat:0,lastBeat:0,slide:0,floatY:0,idleEvt:0};
+function load(i){
+  cur=(i+PETS.length)%PETS.length;const p=PETS[cur];
+  $('#scene').style.background=p.bg;document.body.style.color=p.dark?'#2a2118':'#fff';document.body.classList.toggle('scan',!!p.scan);
+  $('#nm').textContent=p.name;$('#st').textContent=`${cur+1}/10 · ${p.style}`;
+  $('#stage').innerHTML=`<svg viewBox="0 0 300 300">${p.svg()}</svg>`;
+  parts={body:$('#body'),eyes:[...document.querySelectorAll('.eye')],mouth:$('.mouth'),cheeks:[...document.querySelectorAll('.cheek')],shadow:$('#shadow')};
+  parts.eyes.forEach(e=>{e.c=e.dataset.c.split(',').map(Number);e.pup=e.querySelector('.pup')});
+  $('#dots').innerHTML=PETS.map((_,k)=>`<i class="${k==cur?'on':''}"></i>`).join('');P.mouthKey='';
+  document.querySelectorAll('.nav button,.bar button').forEach(b=>b.style.color=p.dark?'#2a2118':'#fff');
+}
+function setMouth(k){if(P.mouthKey==k)return;P.mouthKey=k;const m=PETS[cur].mouths[k]||PETS[cur].mouths.idle;parts.mouth&&parts.mouth.setAttribute('d',m)}
+function fx(ch,dx){const r=$('#stage svg').getBoundingClientRect();const s=document.createElement('div');s.className='pt';s.textContent=ch;s.style.left=(r.left+r.width*(0.5+rnd(-.15,.15)))+'px';s.style.top=(r.top+r.height*0.25)+'px';s.style.setProperty('--dx',(dx??rnd(-40,40))+'px');$('#fx').appendChild(s);setTimeout(()=>s.remove(),1700)}
+function buzz(p){try{navigator.vibrate&&navigator.vibrate(p)}catch(e){}}
+function hop(v=7){if(P.y>-1){P.vy=-v*35}}
+let moodTxt='';function mood(s){if(s!=moodTxt){moodTxt=s;$('#mood').textContent=s}}
+
+function frame(now){
+  const dt=Math.min(0.05,(now-last)/1000);last=now;const t=(now-T0)/1000;const p=PETS[cur];
+  // look target: pointer, else wander
+  if(P.pointer){P.tx=P.pointer[0];P.ty=P.pointer[1]}
+  else if(t>P.nextLook){P.nextLook=t+rnd(1.2,3.8);const r=Math.random();if(r<.35){P.tx=0;P.ty=0}else{P.tx=rnd(-1,1);P.ty=rnd(-.7,.6)}
+    if(!P.sleep&&!P.dance&&Math.random()<.12){const e=Math.floor(rnd(0,3));if(e==0){hop(5);}else if(e==1){P.idleEvt=1.2;}else{fx(['✨','🐞','💭'][Math.floor(rnd(0,3))])}}}
+  if(P.dizzyT>0){P.tx=Math.cos(t*14);P.ty=Math.sin(t*14)}
+  P.tx+=P.tiltS*0.8;
+  P.lookX=lerp(P.lookX,clamp(P.tx,-1,1),1-Math.pow(.0005,dt));P.lookY=lerp(P.lookY,clamp(P.ty,-1,1),1-Math.pow(.0005,dt));
+  // blink
+  let bl=0;if(t>P.nextBlink){P.blinkStart=t;P.nextBlink=t+rnd(1.8,5.5);if(Math.random()<.25)P.double=t+0.28}
+  const bs=P.blinkStart||-9;if(t-bs<0.16)bl=Math.sin((t-bs)/0.16*Math.PI);if(P.double&&t>P.double&&t-P.double<0.16)bl=Math.sin((t-P.double)/0.16*Math.PI);
+  if(P.sleep)bl=1;else if(P.purrT>0)bl=0.75;else if(P.idleEvt>0)bl=Math.max(bl,0.85);
+  // physics: hop + squash spring
+  P.vy+=900*dt;P.y+=P.vy*dt;if(P.y>0){if(P.vy>150){P.sv+=P.vy/500;buzz(8)}P.y=0;P.vy=0}
+  P.sv+=(-P.squash*90-P.sv*9)*dt;P.squash+=P.sv*dt;
+  // beat (dance)
+  if(P.dance){const b=getBeat(t);if(b){hop(6);P.beat=1-P.beat;P.sv+=0.4;if(Math.random()<.5)fx(['🎵','🎶'][Math.floor(rnd(0,2))]);buzz(12)}}
+  P.happyT-=dt;P.purrT-=dt;P.dizzyT-=dt;P.idleEvt-=dt;
+  P.excite=lerp(P.excite,(P.happyT>0||P.dance||P.dizzyT>0)?1:0,dt*6);
+  P.tiltS=lerp(P.tiltS,P.tilt,dt*4);
+  // breathing
+  const br=P.sleep?Math.sin(t*1.4)*0.035:Math.sin(t*2.4)*0.022;
+  let sx=1-br*0.5+P.squash*1.2,sy=1+br-P.squash*1.2;
+  let ty=P.y,rot=P.tiltS*12+(P.dance?(P.beat?7:-7):0)+(P.dizzyT>0?Math.sin(t*10)*10:0);
+  let txx=0;
+  if(p.float){P.floatY=Math.sin(t*1.6)*9-18;ty+=P.floatY}
+  if(p.jar){P.slide=lerp(P.slide,clamp(P.tiltS*40+Math.sin(t*0.5)*6,-34,34),dt*3);txx=P.slide}
+  if(p.pixel){ty=Math.round(ty/6)*6;sx=Math.round(sx*16)/16;sy=Math.round(sy*16)/16}
+  parts.body&&parts.body.setAttribute('transform',`translate(${150+txx} ${250+ty}) rotate(${rot}) scale(${sx} ${sy}) translate(-150 -250)`);
+  if(parts.shadow){const k=clamp(1+(ty)/120,.45,1.1);parts.shadow.setAttribute('transform',`translate(${150+txx} 254) scale(${k*sx} ${k}) translate(-150 -254)`)}
+  // eyes
+  const er=p.pixel?6:6;
+  parts.eyes.forEach(e=>{const [x,y]=e.c;const b=1-bl*0.92;e.setAttribute('transform',`translate(${x} ${y}) scale(1 ${b}) translate(${-x} ${-y})`);
+    let px=P.lookX*er,py=P.lookY*er*0.8;if(p.pixel){px=Math.round(P.lookX)*6;py=Math.round(P.lookY)*6}e.pup.setAttribute('transform',`translate(${px} ${py})`)});
+  parts.cheeks.forEach(c=>c.setAttribute('opacity',(P.purrT>0||P.happyT>0)?'.85':'0'));
+  // mouth
+  setMouth(P.sleep?'sleep':P.dizzyT>0?'o':P.idleEvt>0?'o':(P.purrT>0||P.happyT>0||P.dance)?'happy':'idle');
+  p.update&&p.update(P,t);
+  // zzz + mood text
+  if(P.sleep&&Math.floor(t*0.7)!=Math.floor((t-dt)*0.7))fx('💤',30);
+  if(P.purrT>0&&Math.floor(t*2)!=Math.floor((t-dt)*2)){fx('💗');buzz([6,30,6])}
+  mood(P.sleep?'sleeping… zZ':P.dizzyT>0?'dizzy!!':P.dance?'vibing to the beat':P.purrT>0?'purring':P.happyT>0?'happy':P.idleEvt>0?'yaaawn':Math.abs(P.tiltS)>.3?'whoa, slipping':p.mood);
+  requestAnimationFrame(frame);
+}
+
+/* ============ input ============ */
+const stage=$('#stage');let down=null,rub=0;
+stage.addEventListener('pointerdown',e=>{down=[e.clientX,e.clientY];rub=0;stage.setPointerCapture(e.pointerId)});
+stage.addEventListener('pointermove',e=>{const r=stage.getBoundingClientRect();P.pointer=[clamp((e.clientX-r.left)/r.width*2-1,-1,1),clamp((e.clientY-r.top)/r.height*2-1,-1,1)];
+  if(down){rub+=Math.hypot(e.clientX-down[0],e.clientY-down[1]);down=[e.clientX,e.clientY];if(rub>140){P.purrT=1.6;if(P.sleep){}}}});
+stage.addEventListener('pointerup',e=>{if(down&&rub<14){if(P.sleep){P.sleep=false;$('#bSleep').classList.remove('on');P.dizzyT=0;fx('❗');hop(8)}else{P.sv+=0.9;setTimeout(()=>hop(8),110);P.happyT=1.3;fx('❤️');buzz(18)}}down=null;if(e.pointerType!='mouse')setTimeout(()=>P.pointer=null,600)});
+stage.addEventListener('pointerleave',()=>{P.pointer=null});
+$('#prev').onclick=()=>load(cur-1);$('#next').onclick=()=>load(cur+1);
+document.addEventListener('keydown',e=>{if(e.key=='ArrowLeft')load(cur-1);if(e.key=='ArrowRight')load(cur+1)});
+$('#bSleep').onclick=()=>{P.sleep=!P.sleep;$('#bSleep').classList.toggle('on',P.sleep);$('#scene').style.filter=P.sleep?'brightness(.35)':''};
+$('#bFull').onclick=()=>{document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen().catch(()=>{})};
+
+// sensors: shake + tilt
+let lastAcc=null,sensOn=false;
+function onMotion(e){const a=e.accelerationIncludingGravity;if(!a||a.x==null)return;if(lastAcc){const d=Math.abs(a.x-lastAcc.x)+Math.abs(a.y-lastAcc.y)+Math.abs(a.z-lastAcc.z);if(d>28&&!P.sleep){P.dizzyT=2.2;P.sv+=0.5;buzz(40)}}lastAcc={x:a.x,y:a.y,z:a.z}}
+function onOrient(e){if(e.gamma!=null)P.tilt=clamp(e.gamma/40,-1,1)}
+$('#bSens').onclick=async()=>{try{if(typeof DeviceMotionEvent!='undefined'&&DeviceMotionEvent.requestPermission)await DeviceMotionEvent.requestPermission()}catch(e){}
+  if(!sensOn){addEventListener('devicemotion',onMotion);addEventListener('deviceorientation',onOrient);sensOn=true;$('#bSens').classList.add('on');fx('📳')}
+  else{removeEventListener('devicemotion',onMotion);removeEventListener('deviceorientation',onOrient);sensOn=false;P.tilt=0;$('#bSens').classList.remove('on')}};
+
+// mic beat detection (falls back to a 118 bpm groove if the mic is unavailable)
+let an=null,buf=null,avg=0,fake=false;
+async function startMic(){try{const s=await navigator.mediaDevices.getUserMedia({audio:true});const ctx=new (window.AudioContext||window.webkitAudioContext)();const src=ctx.createMediaStreamSource(s);an=ctx.createAnalyser();an.fftSize=1024;src.connect(an);buf=new Uint8Array(an.frequencyBinCount);fake=false}catch(e){fake=true;fx('🎧')}}
+function getBeat(t){if(fake||!an){if(t-P.lastBeat>60/118){P.lastBeat=t;return true}return false}
+  an.getByteFrequencyData(buf);let e=0;for(let i=1;i<12;i++)e+=buf[i];e/=11;avg=avg*0.93+e*0.07;
+  if(e>avg*1.25&&e>60&&t-P.lastBeat>0.28){P.lastBeat=t;return true}return false}
+$('#bDance').onclick=async()=>{P.dance=!P.dance;$('#bDance').classList.toggle('on',P.dance);if(P.dance&&!an&&!fake)await startMic()};
+
+// auto-sleep at night (00:00-08:00)
+const h=new Date().getHours();if(h<8){P.sleep=true;$('#bSleep').classList.add('on');$('#scene').style.filter='brightness(.35)'}
+
+load(+(location.hash.slice(1))||0);requestAnimationFrame(frame);
+</script>
+</body>
+</html>
